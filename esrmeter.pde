@@ -82,11 +82,11 @@ void setup(void)
 
 void loop(void)
 {
-  esrSamples = measureESR();//this function takes a while,)
+//  esrSamples = measureESR();//this function takes a while,)
   // so we don't need other delay for the lcd (this functions time gives the refresh rate for display
-  miliVolt = (esrSamples * vRef) / 65.535;//calculating voltage on AIN0 pin
-  esrVal = (miliVolt)/current - esrCal;//calculate ESR in miliOhm (pls read forum for correct formula)
-
+ // miliVolt = (esrSamples * vRef) / 65.535;//calculating voltage on AIN0 pin
+//  esrVal = (miliVolt)/current - esrCal;//calculate ESR in miliOhm (pls read forum for correct formula)
+esrVal=calcESR();
   lcd.clear();
   lcd.print("  V:");
   lcd.print(miliVolt,4);
@@ -140,3 +140,37 @@ unsigned long measureESR()
   return samples;//all done returning sampled value
 }
 
+// ESR calculation routine
+// discharge, start a current pulse, measure the voltage at the ESR_PIN, stop the pulse
+// repeat 4096 times and average the results ('oversampling and decimation')
+// refer to Atmel Application Note AVR121: 'Enhancing ADC resolution by oversampling'
+// http://www.atmel.com/images/doc8003.pdf
+double calcESR()
+{
+  unsigned long accumulator = 0;
+  unsigned int sample = 0;
+  int i = 0;
+  // oversampling 4096 times (for 16 bit is 4^(desiredResolution - ADCresolution))
+  while ( i++ < 4096 )
+  {
+    digitalWrite( DISCHARGE_PIN, HIGH ); // discharge the capacitors
+    delayMicroseconds( 600 ); // discharge wait time
+    digitalWrite( DISCHARGE_PIN, LOW ); // disable discharging
+  //  cli(); // disable interrupts for the pulse measure
+    digitalWrite( PULSE_PIN, LOW ); // start current pulse
+    delayMicroseconds( 1 );
+    // on the scope it appears that after enabling the pulse
+    // a small delay is needed for oscillations to fade away
+    sample = analogRead( ESR_PIN ); // read ADC value
+  //  sei(); // measured, enable interrupts
+    digitalWrite( PULSE_PIN, HIGH ); // stop current pulse
+    accumulator += sample; // accumulate
+  }
+  // sampling is done
+  esrSamples = accumulator >> 6; // decimate the accumulated result
+  // calculate voltage on AIN0 pin...
+  miliVolt = (esrSamples * vRef) / 65.536;
+  // calculate ESR in milliOhms...
+  double Rm = 130.5 / ((3310 / miliVolt) - 1); // Rm is in Ohms
+  return Rm * 1000; // milliOhms
+}
